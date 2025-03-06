@@ -26,7 +26,7 @@
  * Libswresample version macros
  */
 
-#include "version.h"
+#include "libavutil/version.h"
 
 #include "version_major.h"
 

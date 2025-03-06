@@ -44,9 +44,9 @@
 #include <VideoToolbox/VideoToolbox.h>
 #undef Picture
 
-#include "avcodec.h"
+#include "libavcodec/avcodec.h"
 
-#include "../libavutil/attributes.h"
+#include "libavutil/attributes.h"
 
 /**
  * This struct holds all the information that needs to be passed

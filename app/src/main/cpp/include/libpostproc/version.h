@@ -26,7 +26,7 @@
  * Libpostproc version macros
  */
 
-#include "../libswresample/version.h"
+#include "libavutil/version.h"
 
 #include "version_major.h"
 
