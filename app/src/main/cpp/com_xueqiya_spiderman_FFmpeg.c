@@ -27,143 +27,141 @@ Java_com_xueqiya_spiderman_FFmpeg_getVersion(JNIEnv *env, jclass clazz) {
 
 JNIEXPORT void JNICALL
 Java_com_xueqiya_spiderman_FFmpeg_playVideo(JNIEnv *env, jclass clazz, jstring url, jobject surface) {
-    const char *videoUrl = (*env)->GetStringUTFChars(env, url, 0);
-
-    // 初始化 FFmpeg
-    avformat_network_init();
-
-    AVFormatContext *formatContext = NULL;
-    int code = avformat_open_input(&formatContext, videoUrl, NULL, NULL);
-    if (code != 0) {
-        LOGE("Failed to open video file, code=%d, msg=%s", code, av_err2str(code));
+    int result = 0;
+    const char *path = (*env)->GetStringUTFChars(env, url, 0);
+    AVFormatContext *format_context = avformat_alloc_context();
+    // 打开视频文件
+    result = avformat_open_input(&format_context, path, NULL, NULL);
+    if (result < 0) {
+        LOGE("Player Error : Can not open video file");
+        return;
+    }
+    result = avformat_find_stream_info(format_context, NULL);
+    if (result < 0) {
+        LOGE("Player Error : Can not find video file stream info");
         return;
     }
 
-    if (avformat_find_stream_info(formatContext, NULL) < 0) {
-        LOGE("Failed to find stream information")
-        return;
-    }
-
-    // 查找视频流
-    int videoStreamIndex = -1;
-    for (int i = 0; i < formatContext->nb_streams; i++) {
-        if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            videoStreamIndex = i;
-            break;
+    // 查找视频编码器
+    int video_stream_index = -1;
+    for (int i = 0; i < format_context->nb_streams; i++) {
+        // 匹配视频流
+        if (format_context->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            video_stream_index = i;
         }
     }
-
-    if (videoStreamIndex == -1) {
-        LOGE("No video stream found")
+    // 没找到视频流
+    if (video_stream_index == -1) {
+        LOGE("Player Error : Can not find video stream");
         return;
     }
 
-    AVStream *videoStream = formatContext->streams[videoStreamIndex];
-    AVCodecParameters *codecParameters = videoStream->codecpar;
-    AVCodec *codec = avcodec_find_decoder(codecParameters->codec_id);
-
-    if (!codec) {
-        LOGE("Codec not found")
+    // 初始化视频编码器上下文
+    AVCodecContext *video_codec_context = avcodec_alloc_context3(NULL);
+    avcodec_parameters_to_context(video_codec_context,
+                                  format_context->streams[video_stream_index]->codecpar);
+    // 初始化视频编码器
+    AVCodec *video_codec = avcodec_find_decoder(video_codec_context->codec_id);
+    if (video_codec == NULL) {
+        LOGE("Player Error : Can not find video codec");
         return;
     }
 
-    AVCodecContext *codecContext = avcodec_alloc_context3(codec);
-    if (avcodec_parameters_to_context(codecContext, codecParameters) < 0) {
-        LOGE("Failed to copy codec parameters to context")
+    result = avcodec_open2(video_codec_context, video_codec, NULL);
+    if (result < 0) {
+        LOGE("Player Error : Can not find video stream");
         return;
     }
 
-    if (avcodec_open2(codecContext, codec, NULL) < 0) {
-        LOGE("Failed to open codec")
+    // 获取视频的宽高
+    int videoWidth = video_codec_context->width;
+    int videoHeight = video_codec_context->height;
+    // R4 初始化 Native Window 用于播放视频
+    ANativeWindow *native_window = ANativeWindow_fromSurface(env, surface);
+    if (native_window == NULL) {
+        LOGE("Player Error : Can not create native window");
+        return;
+    }
+    // 通过设置宽高限制缓冲区中的像素数量，而非屏幕的物理显示尺寸。
+    // 如果缓冲区与物理屏幕的显示尺寸不相符，则实际显示可能会是拉伸，或者被压缩的图像
+    result = ANativeWindow_setBuffersGeometry(native_window, videoWidth, videoHeight,
+                                              WINDOW_FORMAT_RGBA_8888);
+    if (result < 0) {
+        LOGE("Player Error : Can not set native window buffer");
+        ANativeWindow_release(native_window);
         return;
     }
 
-    // 获取 Surface
-    ANativeWindow *nativeWindow = ANativeWindow_fromSurface(env, surface);
-    if (!nativeWindow) {
-        LOGE("Failed to get native window")
-        return;
-    }
-
-    // 创建 SwsContext，用于将解码后的YUV数据转换为RGB
-    struct SwsContext *swsContext = sws_getContext(
-            codecContext->width, codecContext->height, codecContext->pix_fmt,
-            codecContext->width, codecContext->height, AV_PIX_FMT_RGB24,
-            SWS_BICUBIC, NULL, NULL, NULL
-    );
-
-    if (!swsContext) {
-        LOGE("Failed to create sws context")
-        return;
-    }
-
-    // 创建 AVFrame 用于视频解码
+    // 定义绘图缓冲区
+    ANativeWindow_Buffer window_buffer;
+    // 声明数据容器 有3个
+    // R5 解码前数据容器 Packet 编码数据
+    AVPacket *packet = av_packet_alloc();
+    // R6 解码后数据容器 Frame 像素数据 不能直接播放像素数据 还要转换
     AVFrame *frame = av_frame_alloc();
-    AVFrame *rgbFrame = av_frame_alloc();
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, codecContext->width, codecContext->height, 1);
-    uint8_t *buffer = (uint8_t *)av_malloc(numBytes * sizeof(uint8_t));
+    // R7 转换后数据容器 这里面的数据可以用于播放
+    AVFrame *rgba_frame = av_frame_alloc();
+    // 数据格式转换准备
+    // 输出 Buffer
+    int buffer_size = av_image_get_buffer_size(AV_PIX_FMT_RGBA, videoWidth, videoHeight, 1);
+    // R8 申请 Buffer 内存
+    uint8_t *out_buffer = (uint8_t *) av_malloc(buffer_size * sizeof(uint8_t));
+    av_image_fill_arrays(rgba_frame->data, rgba_frame->linesize, out_buffer, AV_PIX_FMT_RGBA,
+                         videoWidth, videoHeight, 1);
+    // R9 数据格式转换上下文
+    struct SwsContext *data_convert_context = sws_getContext(
+            videoWidth, videoHeight, video_codec_context->pix_fmt,
+            videoWidth, videoHeight, AV_PIX_FMT_RGBA,
+            SWS_BICUBIC, NULL, NULL, NULL);
 
-    av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, buffer, AV_PIX_FMT_RGB24, codecContext->width, codecContext->height, 1);
+    // 开始读取帧
+    //读取帧
+    while (av_read_frame(format_context, packet) >= 0) {
+        if (packet->stream_index == video_stream_index) {
 
-    AVPacket packet;
+            /***
+            * 很多教程写的是这个函数，这是旧版FFmpeg里面的写法，新版中已经移除了这个函数
+            * avcodec_decode_video2(context, frame, &count, packet)
+            * 用下面两个函数替代
+            * avcodec_send_packet(context, packet)
+            * avcodec_receive_frame(context, frame)
+            ***/
 
-    while (av_read_frame(formatContext, &packet) >= 0) {
-        if (packet.stream_index == videoStreamIndex) {
-            int response = avcodec_send_packet(codecContext, &packet);
-            if (response < 0) {
-                LOGE("Error sending packet to decoder")
-                break;
+            //视频解码
+            int ret = avcodec_send_packet(video_codec_context, packet);
+            if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+                continue;
             }
 
-            while (response >= 0) {
-                response = avcodec_receive_frame(codecContext, frame);
-                if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
-                    break;
-                } else if (response < 0) {
-                    LOGE("Error receiving frame from decoder")
-                    return;
+            ret = avcodec_receive_frame(video_codec_context, frame);
+            if (ret < 0 && ret != AVERROR_EOF) {
+                continue;
+            }
+
+            sws_scale(data_convert_context, (const uint8_t *const *) frame->data, frame->linesize,
+                      0, video_codec_context->height,
+                      rgba_frame->data, rgba_frame->linesize);
+
+            if (ANativeWindow_lock(native_window, &window_buffer, NULL) < 0) {
+                continue;
+            } else {
+                //将图像绘制到界面上，注意这里pFrameRGBA一行的像素和windowBuffer一行的像素长度可能不一致
+                //需要转换好，否则可能花屏
+                uint8_t *dst = (uint8_t *) window_buffer.bits;
+                for (int h = 0; h < videoHeight; h++) {
+                    memcpy(dst + h * window_buffer.stride * 4,
+                           out_buffer + h * rgba_frame->linesize[0],
+                           rgba_frame->linesize[0]);
                 }
-
-                // 转换帧为RGB格式
-                sws_scale(swsContext, frame->data, frame->linesize, 0, codecContext->height, rgbFrame->data, rgbFrame->linesize);
-
-                // 渲染帧
-                // 将RGB数据绘制到 Surface 上
-                ANativeWindow_Buffer windowBuffer;
-                if (ANativeWindow_lock(nativeWindow, &windowBuffer, NULL) < 0) {
-                    LOGE("Failed to lock the window")
-                    continue;
-                }
-
-                uint8_t *dst = (uint8_t *)windowBuffer.bits;
-                int dstStride = windowBuffer.stride * 4;
-
-                for (int y = 0; y < codecContext->height; y++) {
-                    for (int x = 0; x < codecContext->width; x++) {
-                        int r = rgbFrame->data[0][y * rgbFrame->linesize[0] + x * 3 + 0];
-                        int g = rgbFrame->data[0][y * rgbFrame->linesize[0] + x * 3 + 1];
-                        int b = rgbFrame->data[0][y * rgbFrame->linesize[0] + x * 3 + 2];
-
-                        dst[y * dstStride + x * 4 + 0] = b;  // Blue
-                        dst[y * dstStride + x * 4 + 1] = g;  // Green
-                        dst[y * dstStride + x * 4 + 2] = r;  // Red
-                        dst[y * dstStride + x * 4 + 3] = 255;  // Alpha (fully opaque)
-                    }
-                }
-
-                ANativeWindow_unlockAndPost(nativeWindow);
+                ANativeWindow_unlockAndPost(native_window);
             }
         }
-
-        av_packet_unref(&packet);
+        av_packet_unref(packet);
     }
-
-    // 释放资源
-    av_frame_free(&frame);
-    av_frame_free(&rgbFrame);
-    av_freep(&buffer);
-    sws_freeContext(swsContext);
-    avcodec_free_context(&codecContext);
-    avformat_close_input(&formatContext);
-    ANativeWindow_release(nativeWindow);
+    //释放内存
+    sws_freeContext(data_convert_context);
+    av_free(packet);
+    av_free(rgba_frame);
+    avcodec_close(video_codec_context);
+    avformat_close_input(&format_context);
 }

@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.SurfaceView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -17,13 +18,15 @@ class MainActivity : AppCompatActivity() {
 
         versionView.text = FFmpeg.getVersion()
         versionView.setOnClickListener {
-            val videoUrl = "http://vjs.zencdn.net/v/oceans.mp4"
-            val surface = surfaceView.holder.surface
-            if (surface == null) {
-                Log.e("MainActivity", "Surface is null")
-                return@setOnClickListener
+            thread {
+                val videoUrl = "http://vjs.zencdn.net/v/oceans.mp4"
+                val surface = surfaceView.holder.surface
+                if (surface == null) {
+                    Log.e("MainActivity", "Surface is null")
+                    return@thread
+                }
+                FFmpeg.playVideo(videoUrl, surface)
             }
-            FFmpeg.playVideo(videoUrl, surface)
         }
     }
 }
