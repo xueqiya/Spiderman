@@ -1,5 +1,7 @@
 package com.xueqiya.spiderman;
 
+import android.view.Surface;
+
 public class FFmpeg {
 
     static {
@@ -15,4 +17,6 @@ public class FFmpeg {
     }
 
     public static native String getVersion();
+
+    public static native void playVideo(String url, Surface surface);
 }

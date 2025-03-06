@@ -13,6 +13,9 @@ find_library(
         log-lib
         log)
 
+find_library(android-lib
+        android)
+
 add_library(
         ffmpeg
         SHARED
@@ -28,5 +31,6 @@ target_link_libraries(
         avfilter
         swresample
         avdevice
+        ${android-lib}
         ${log-lib})
 
