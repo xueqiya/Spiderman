@@ -11,6 +11,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        findViewById<TextView>(R.id.text).setText(FFmpeg.run())
+        findViewById<TextView>(R.id.text).text = FFmpeg.getVersion()
     }
 }

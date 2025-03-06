@@ -1,6 +1,7 @@
 package com.xueqiya.spiderman;
 
 public class FFmpeg {
+
     static {
         System.loadLibrary("avcodec");
         System.loadLibrary("avformat");
@@ -13,6 +14,5 @@ public class FFmpeg {
         System.loadLibrary("ffmpeg");
     }
 
-    public static native String run();
-
+    public static native String getVersion();
 }

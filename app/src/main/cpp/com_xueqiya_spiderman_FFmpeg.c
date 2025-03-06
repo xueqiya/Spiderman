@@ -6,9 +6,12 @@
 #include "./include/libavcodec/avcodec.h"
 #include "./include/libavformat/avformat.h"
 #include "./include/libavfilter/avfilter.h"
+#include "include/libavutil/avutil.h"
 
-JNIEXPORT jstring JNICALL Java_com_xueqiya_spiderman_FFmpeg_run(JNIEnv *env, jclass){
-    const char *conf = avcodec_configuration();
-    __android_log_print(ANDROID_LOG_INFO, "JNI", "avcodec_configuration: %s", conf);
-    return (*env)->NewStringUTF(env, conf);
+JNIEXPORT jstring JNICALL Java_com_xueqiya_spiderman_FFmpeg_getVersion(JNIEnv *env, jclass){
+    const unsigned version = avutil_version();
+    char version_str[32];
+    snprintf(version_str, sizeof(version_str), "%u", version);
+    __android_log_print(ANDROID_LOG_DEBUG, "JNI", "avcodec_configuration: %s", version_str);
+    return (*env)->NewStringUTF(env, version_str);
 }

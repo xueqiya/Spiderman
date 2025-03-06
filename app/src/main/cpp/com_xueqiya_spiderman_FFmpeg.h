@@ -12,8 +12,7 @@ extern "C" {
  * Method:    run
  * Signature: ()Ljava/lang/String;
  */
-JNIEXPORT jstring JNICALL Java_com_xueqiya_spiderman_FFmpeg_run
-  (JNIEnv *, jclass);
+JNIEXPORT jstring JNICALL Java_com_xueqiya_spiderman_FFmpeg_getVersion(JNIEnv *, jclass);
 
 #ifdef __cplusplus
 }
